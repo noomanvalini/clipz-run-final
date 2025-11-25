@@ -177,13 +177,21 @@ export default function App() {
                 const q = query(activitiesRef, orderBy('date', 'desc'));
 
                 const unsubHistory = onSnapshot(q, (snapshot) => {
-                    const acts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivityData));
+                    const acts = snapshot.docs.map(doc => {
+                        const data = doc.data();
+                        const pos = data.positions?.map((p: any) => Array.isArray(p) ? p : [p.lat, p.lng]) || [];
+                        return { id: doc.id, ...data, positions: pos } as ActivityData;
+                    });
                     setHistoryList(acts);
                 }, (err) => {
                     console.error("Erro ao ler histórico:", err);
                     // Fallback sem ordenação se index faltar
                     onSnapshot(collection(db, 'users', user.uid, 'activities'), (snap) => {
-                        const acts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivityData));
+                        const acts = snap.docs.map(doc => {
+                            const data = doc.data();
+                            const pos = data.positions?.map((p: any) => Array.isArray(p) ? p : [p.lat, p.lng]) || [];
+                            return { id: doc.id, ...data, positions: pos } as ActivityData;
+                        });
                         setHistoryList(acts.sort((a, b) => b.date.seconds - a.date.seconds));
                     });
                 });
@@ -280,13 +288,16 @@ export default function App() {
 
         if (currentUser) {
             try {
+                // Firestore doesn't support nested arrays, so we convert [[lat, lng]] to [{lat, lng}]
+                const positionsForDb = positions.map(p => ({ lat: p[0], lng: p[1] }));
+
                 await addDoc(collection(db, 'users', currentUser.uid, 'activities'), {
                     date: Timestamp.now(),
                     type: activityType,
                     distance: distance,
                     elapsedTime: elapsedTime,
                     pace: calculatePaceVal(distance, elapsedTime),
-                    positions: positions
+                    positions: positionsForDb
                 });
             } catch (e: any) {
                 console.error("Erro ao salvar atividade:", e);
