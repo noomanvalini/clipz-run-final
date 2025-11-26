@@ -157,11 +157,12 @@ export default function App() {
     const [aiCaption, setAiCaption] = useState<string | null>(null);
     const [loadingAiCaption, setLoadingAiCaption] = useState(false);
     const [userPhoto, setUserPhoto] = useState<string | null>(null);
-    const [shareMode, setShareMode] = useState(false);
+    const [isSharing, setIsSharing] = useState(false);
     const [historyList, setHistoryList] = useState<ActivityData[]>([]);
     const [selectedActivity, setSelectedActivity] = useState<ActivityData | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const cardRef = useRef<HTMLDivElement>(null);
     const watchId = useRef<number | null>(null);
     const timerId = useRef<any>(null);
     const simulationInterval = useRef<any>(null);
@@ -289,18 +290,63 @@ export default function App() {
 
         if (currentUser) {
             try {
+                // Firestore doesn't support nested arrays, so we convert [[lat, lng]] to [{lat, lng}]
+                const positionsForDb = positions.map(p => ({ lat: p[0], lng: p[1] }));
+
                 await addDoc(collection(db, 'users', currentUser.uid, 'activities'), {
                     date: Timestamp.now(),
                     type: activityType,
                     distance: distance,
                     elapsedTime: elapsedTime,
                     pace: calculatePaceVal(distance, elapsedTime),
-                    positions: positions
+                    positions: positionsForDb
                 });
-            } catch (e) {
+            } catch (e: any) {
                 console.error("Erro ao salvar atividade:", e);
-                alert("Erro ao salvar treino. Verifique sua conexão.");
+                alert(`Erro ao salvar treino: ${e.message || e}`);
             }
+        }
+    };
+
+    const handleNativeShare = async () => {
+        if (!cardRef.current) return;
+        setIsSharing(true);
+        try {
+            const canvas = await html2canvas(cardRef.current, {
+                useCORS: true,
+                scale: 2,
+                backgroundColor: '#000000'
+            } as any);
+
+            canvas.toBlob(async (blob) => {
+                if (!blob) {
+                    setIsSharing(false);
+                    return;
+                }
+
+                const file = new File([blob], "clipzrun-share.png", { type: "image/png" });
+
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            files: [file],
+                            title: "ClipzRUN",
+                            text: aiCaption || "Confira meu treino no ClipzRUN!"
+                        });
+                    } catch (err) {
+                        console.error("Erro ao compartilhar:", err);
+                    }
+                } else {
+                    const link = document.createElement('a');
+                    link.download = 'clipzrun-share.png';
+                    link.href = canvas.toDataURL();
+                    link.click();
+                }
+                setIsSharing(false);
+            }, 'image/png');
+        } catch (error) {
+            console.error("Erro ao gerar imagem:", error);
+            setIsSharing(false);
         }
     };
 
@@ -311,7 +357,7 @@ export default function App() {
         setDistance(0);
         setAiCaption(null);
         setUserPhoto(null);
-        setShareMode(false);
+        setIsSharing(false);
     };
 
     // --- UI Renders ---
@@ -403,8 +449,7 @@ export default function App() {
         const activityName = data.type === 'run' ? 'CORRIDA' : 'CAMINHADA';
 
         return (
-            <div className={`w-full relative overflow-hidden flex flex-col bg-black transition-all duration-300
-          ${shareMode ? 'h-screen w-screen absolute inset-0 z-50' : 'aspect-[9/16] rounded-[20px] shadow-2xl border border-white/10 max-h-[75vh]'}`}>
+            <div ref={cardRef} className="w-full relative overflow-hidden flex flex-col bg-black transition-all duration-300 aspect-[9/16] rounded-[20px] shadow-2xl border border-white/10 max-h-[75vh]">
 
                 {/* Camada de Foto/Fundo */}
                 <div className="absolute inset-0 z-0">
@@ -418,7 +463,7 @@ export default function App() {
                 </div>
 
                 {/* Mapa SVG */}
-                <div className={`absolute inset-0 z-10 flex items-center justify-center pointer-events-none ${shareMode ? 'pb-64' : 'pb-32'}`}>
+                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none pb-32">
                     <RouteVisualizer positions={data.positions} className="w-full h-[60%]" />
                 </div>
 
@@ -472,20 +517,6 @@ export default function App() {
                         </div>
                     </div>
                 </div>
-
-                {/* Aviso de Modo Share */}
-                {shareMode && (
-                    <div className="absolute top-1/2 left-0 right-0 text-center pointer-events-none opacity-0 animate-pulse">
-                        <p className="text-white font-bold bg-black/50 inline-block px-4 py-2 rounded">Tire o print agora!</p>
-                    </div>
-                )}
-
-                {/* Botão Sair do Share */}
-                {shareMode && (
-                    <button onClick={() => setShareMode(false)} className="absolute top-6 right-6 bg-black/50 p-2 rounded-full text-white backdrop-blur z-50">
-                        <X size={24} />
-                    </button>
-                )}
             </div>
         );
     };
@@ -496,28 +527,27 @@ export default function App() {
         };
 
         return (
-            <MobileContainer className={`p-0 bg-black ${shareMode ? '' : 'md:p-8'}`}>
+            <MobileContainer className="p-0 bg-black md:p-8">
                 <div className="w-full h-full flex flex-col items-center justify-center relative">
                     {renderResultCard(data as ActivityData, status === 'details')}
 
-                    {!shareMode && (
-                        <div className="w-full max-w-[400px] flex gap-2 p-4">
-                            <input type="file" accept="image/*" ref={fileInputRef} onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) { const r = new FileReader(); r.onload = () => setUserPhoto(r.result as string); r.readAsDataURL(f); }
-                            }} className="hidden" />
+                    <div className="w-full max-w-[400px] flex gap-2 p-4">
+                        <input type="file" accept="image/*" ref={fileInputRef} onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) { const r = new FileReader(); r.onload = () => setUserPhoto(r.result as string); r.readAsDataURL(f); }
+                        }} className="hidden" />
 
-                            <button onClick={() => fileInputRef.current?.click()} className="flex-1 py-3 rounded-xl bg-white/10 text-white text-xs font-bold flex flex-col items-center gap-1">
-                                <Camera size={18} /> FOTO
-                            </button>
-                            <button onClick={() => setShareMode(true)} className="flex-1 py-3 rounded-xl bg-orange-500 text-white text-xs font-bold flex flex-col items-center gap-1 shadow-lg shadow-orange-900/40">
-                                <Share2 size={18} /> STORIES
-                            </button>
-                            <button onClick={() => { resetApp(); setStatus(status === 'details' ? 'history' : 'idle'); }} className="flex-1 py-3 rounded-xl bg-white/10 text-white text-xs font-bold flex flex-col items-center gap-1">
-                                <Save size={18} /> {status === 'details' ? 'VOLTAR' : 'SALVAR'}
-                            </button>
-                        </div>
-                    )}
+                        <button onClick={() => fileInputRef.current?.click()} className="flex-1 py-3 rounded-xl bg-white/10 text-white text-xs font-bold flex flex-col items-center gap-1">
+                            <Camera size={18} /> FOTO
+                        </button>
+                        <button onClick={handleNativeShare} disabled={isSharing} className="flex-1 py-3 rounded-xl bg-orange-500 text-white text-xs font-bold flex flex-col items-center gap-1 shadow-lg shadow-orange-900/40 disabled:opacity-50 disabled:cursor-not-allowed">
+                            {isSharing ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Share2 size={18} />}
+                            {isSharing ? 'GERANDO...' : 'STORIES'}
+                        </button>
+                        <button onClick={() => { resetApp(); setStatus(status === 'details' ? 'history' : 'idle'); }} className="flex-1 py-3 rounded-xl bg-white/10 text-white text-xs font-bold flex flex-col items-center gap-1">
+                            <Save size={18} /> {status === 'details' ? 'VOLTAR' : 'SALVAR'}
+                        </button>
+                    </div>
                 </div>
             </MobileContainer>
         );
