@@ -11,11 +11,13 @@
   },
   "dependencies": {
     "firebase": "12.6.0",
+    "html2canvas": "^1.4.1",
     "lucide-react": "0.554.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@types/html2canvas": "^0.5.35",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@typescript-eslint/eslint-plugin": "^8.17.0",
