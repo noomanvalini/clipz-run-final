@@ -4,6 +4,7 @@ import { Play, Pause, Square, Share2, MapPin, Activity, Timer, Navigation, Spark
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, query, Timestamp, orderBy } from 'firebase/firestore';
+import { BottomNav } from './components/BottomNav'; // Import BottomNav
 
 // --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
@@ -362,6 +363,8 @@ export default function App() {
 
     // --- UI Renders ---
 
+    // --- UI Renders ---
+
     // Auth Screen
     if (status === 'auth') {
         return (
@@ -402,259 +405,317 @@ export default function App() {
         );
     }
 
-    // History Screen
-    if (status === 'history') {
-        return (
-            <MobileContainer className="relative">
-                <div className="p-6 h-full flex flex-col">
-                    <div className="flex items-center justify-between mb-6">
-                        <button onClick={() => setStatus('idle')} className="p-2 bg-white/5 rounded-full hover:bg-white/10 text-white">
-                            <ChevronLeft size={20} />
-                        </button>
-                        <h2 className="text-white font-bold uppercase tracking-wider">Histórico</h2>
-                        <div className="w-9" />
-                    </div>
+    // Main Content Wrapper
+    const content = () => {
+        // Share/Result Card
+        const renderResultCard = (data: ActivityData, isPreview = false) => {
+            const currentCaption = isPreview ? (selectedActivity?.aiCaption || "Belo treino!") : aiCaption;
+            const activityName = data.type === 'run' ? 'CORRIDA' : 'CAMINHADA';
 
-                    <div className="flex-1 overflow-y-auto space-y-3 pb-20 no-scrollbar">
-                        {historyList.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center h-64 text-slate-500 text-sm">Nenhum treino salvo.</div>
+            return (
+                <div ref={cardRef} className="w-full relative overflow-hidden flex flex-col bg-black transition-all duration-300 aspect-[9/16] rounded-[20px] shadow-2xl border border-white/10 max-h-[75vh]">
+                    {/* Camada de Foto/Fundo */}
+                    <div className="absolute inset-0 z-0">
+                        {userPhoto ? (
+                            <img src={userPhoto} className="w-full h-full object-cover" />
                         ) : (
-                            historyList.map((act) => (
-                                <div key={act.id} onClick={() => { setSelectedActivity(act); setStatus('details'); }}
-                                    className="bg-white/5 border border-white/5 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-white/10">
-                                    <div className="flex items-center">
-                                        <div className={`p-3 rounded-full mr-4 ${act.type === 'run' ? 'bg-orange-500/20 text-orange-500' : 'bg-green-500/20 text-green-500'}`}>
-                                            {act.type === 'run' ? <Activity size={20} /> : <Footprints size={20} />}
-                                        </div>
-                                        <div>
-                                            <p className="text-white font-bold text-sm uppercase">{act.type === 'run' ? 'Corrida' : 'Caminhada'}</p>
-                                            <p className="text-slate-500 text-xs">{new Date(act.date.seconds * 1000).toLocaleDateString()}</p>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-white font-mono font-bold">{act.distance.toFixed(2)} km</p>
-                                    </div>
-                                </div>
-                            ))
+                            <div className="w-full h-full bg-gradient-to-b from-[#21262d] to-black"></div>
                         )}
-                    </div>
-                </div>
-            </MobileContainer>
-        );
-    }
-
-    // Share/Result Card
-    const renderResultCard = (data: ActivityData, isPreview = false) => {
-        const currentCaption = isPreview ? (selectedActivity?.aiCaption || "Belo treino!") : aiCaption;
-        const activityName = data.type === 'run' ? 'CORRIDA' : 'CAMINHADA';
-
-        return (
-            <div ref={cardRef} className="w-full relative overflow-hidden flex flex-col bg-black transition-all duration-300 aspect-[9/16] rounded-[20px] shadow-2xl border border-white/10 max-h-[75vh]">
-
-                {/* Camada de Foto/Fundo */}
-                <div className="absolute inset-0 z-0">
-                    {userPhoto ? (
-                        <img src={userPhoto} className="w-full h-full object-cover" />
-                    ) : (
-                        <div className="w-full h-full bg-gradient-to-b from-[#21262d] to-black"></div>
-                    )}
-                    <div className={`absolute inset-0 ${userPhoto ? 'bg-black/40' : 'bg-transparent'}`}></div>
-                    <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent"></div>
-                </div>
-
-                {/* Mapa SVG */}
-                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none pb-32">
-                    <RouteVisualizer positions={data.positions} className="w-full h-[60%]" />
-                </div>
-
-                {/* Overlay de Dados */}
-                <div className="relative z-20 flex flex-col justify-between h-full p-6 pt-10">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <img src={LOGO_FULL} className="h-8 mb-2 object-contain" />
-                            <div className="flex items-center text-xs font-mono opacity-90 text-white">
-                                <MapPin size={12} className="mr-1" style={{ color: theme.primary }} /> São Paulo, BR
-                            </div>
-                        </div>
-                        <div className="flex flex-col items-end">
-                            <span className="text-xs font-black px-3 py-1 rounded-full backdrop-blur-md shadow-lg mb-1 uppercase tracking-widest"
-                                style={{ backgroundColor: theme.secondary, color: '#000000' }}>
-                                {activityName}
-                            </span>
-                            <span className="text-[10px] text-white/70 font-mono">
-                                {data.date instanceof Timestamp ? new Date(data.date.seconds * 1000).toLocaleDateString() : new Date().toLocaleDateString()}
-                            </span>
-                        </div>
+                        <div className={`absolute inset-0 ${userPhoto ? 'bg-black/40' : 'bg-transparent'}`}></div>
+                        <div className="absolute bottom-0 left-0 right-0 h-2/3 bg-gradient-to-t from-black via-black/80 to-transparent"></div>
                     </div>
 
-                    <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="backdrop-blur-xl rounded-2xl p-4 border-l-4 shadow-lg bg-white/5" style={{ borderColor: theme.primary }}>
-                                <p className="text-[10px] uppercase font-bold mb-1 opacity-100 text-white">Distância</p>
-                                <div className="flex items-baseline">
-                                    <span className="text-4xl font-black text-white">{data.distance.toFixed(2)}</span>
-                                    <span className="text-sm font-bold ml-1" style={{ color: theme.primary }}>km</span>
+                    {/* Mapa SVG */}
+                    <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none pb-32">
+                        <RouteVisualizer positions={data.positions} className="w-full h-[60%]" />
+                    </div>
+
+                    {/* Overlay de Dados */}
+                    <div className="relative z-20 flex flex-col justify-between h-full p-6 pt-10">
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <img src={LOGO_FULL} className="h-8 mb-2 object-contain" />
+                                <div className="flex items-center text-xs font-mono opacity-90 text-white">
+                                    <MapPin size={12} className="mr-1" style={{ color: theme.primary }} /> São Paulo, BR
                                 </div>
                             </div>
-                            <div className="flex flex-col gap-2">
-                                <div className="backdrop-blur-xl rounded-2xl p-3 flex-1 flex flex-col justify-center border-l-2 bg-white/5" style={{ borderColor: theme.secondary }}>
-                                    <p className="text-[10px] uppercase font-bold opacity-100 text-white">Tempo</p>
-                                    <p className="text-xl font-black text-white leading-none">{formatTime(data.elapsedTime)}</p>
-                                </div>
-                                <div className="backdrop-blur-xl rounded-2xl p-3 flex-1 flex flex-col justify-center border-l-2 bg-white/5" style={{ borderColor: theme.secondary }}>
-                                    <p className="text-[10px] uppercase font-bold opacity-100 text-white">Ritmo</p>
-                                    <p className="text-xl font-black text-white leading-none">{data.pace || calculatePaceVal(data.distance, data.elapsedTime)}</p>
-                                </div>
+                            <div className="flex flex-col items-end">
+                                <span className="text-xs font-black px-3 py-1 rounded-full backdrop-blur-md shadow-lg mb-1 uppercase tracking-widest"
+                                    style={{ backgroundColor: theme.secondary, color: '#000000' }}>
+                                    {activityName}
+                                </span>
+                                <span className="text-[10px] text-white/70 font-mono">
+                                    {data.date instanceof Timestamp ? new Date(data.date.seconds * 1000).toLocaleDateString() : new Date().toLocaleDateString()}
+                                </span>
                             </div>
                         </div>
 
-                        <div className="backdrop-blur-md rounded-xl p-4 border border-white/5 bg-black/40 min-h-[60px] flex items-center justify-center">
-                            {(!isPreview && loadingAiCaption) ? (
-                                <div className="flex items-center text-xs opacity-70 animate-pulse text-white"><Sparkles size={14} className="mr-2" /> Gerando legenda...</div>
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="backdrop-blur-xl rounded-2xl p-4 border-l-4 shadow-lg bg-white/5" style={{ borderColor: theme.primary }}>
+                                    <p className="text-[10px] uppercase font-bold mb-1 opacity-100 text-white">Distância</p>
+                                    <div className="flex items-baseline">
+                                        <span className="text-4xl font-black text-white">{data.distance.toFixed(2)}</span>
+                                        <span className="text-sm font-bold ml-1" style={{ color: theme.primary }}>km</span>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <div className="backdrop-blur-xl rounded-2xl p-3 flex-1 flex flex-col justify-center border-l-2 bg-white/5" style={{ borderColor: theme.secondary }}>
+                                        <p className="text-[10px] uppercase font-bold opacity-100 text-white">Tempo</p>
+                                        <p className="text-xl font-black text-white leading-none">{formatTime(data.elapsedTime)}</p>
+                                    </div>
+                                    <div className="backdrop-blur-xl rounded-2xl p-3 flex-1 flex flex-col justify-center border-l-2 bg-white/5" style={{ borderColor: theme.secondary }}>
+                                        <p className="text-[10px] uppercase font-bold opacity-100 text-white">Ritmo</p>
+                                        <p className="text-xl font-black text-white leading-none">{data.pace || calculatePaceVal(data.distance, data.elapsedTime)}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="backdrop-blur-md rounded-xl p-4 border border-white/5 bg-black/40 min-h-[60px] flex items-center justify-center">
+                                {(!isPreview && loadingAiCaption) ? (
+                                    <div className="flex items-center text-xs opacity-70 animate-pulse text-white"><Sparkles size={14} className="mr-2" /> Gerando legenda...</div>
+                                ) : (
+                                    <p className="text-sm italic text-center leading-relaxed text-white/90">"{currentCaption || aiCaption}"</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // History Screen
+        if (status === 'history') {
+            return (
+                <MobileContainer className="relative">
+                    <div className="p-6 h-full flex flex-col pb-28">
+                        <div className="flex items-center justify-between mb-6">
+                            <button onClick={() => setStatus('idle')} className="p-2 bg-white/5 rounded-full hover:bg-white/10 text-white">
+                                <ChevronLeft size={20} />
+                            </button>
+                            <h2 className="text-white font-bold uppercase tracking-wider">Histórico</h2>
+                            <div className="w-9" />
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-3 pb-20 no-scrollbar">
+                            {historyList.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-64 text-slate-500 text-sm">Nenhum treino salvo.</div>
                             ) : (
-                                <p className="text-sm italic text-center leading-relaxed text-white/90">"{currentCaption || aiCaption}"</p>
+                                historyList.map((act) => (
+                                    <div key={act.id} onClick={() => { setSelectedActivity(act); setStatus('details'); }}
+                                        className="bg-white/5 border border-white/5 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-white/10">
+                                        <div className="flex items-center">
+                                            <div className={`p-3 rounded-full mr-4 ${act.type === 'run' ? 'bg-orange-500/20 text-orange-500' : 'bg-green-500/20 text-green-500'}`}>
+                                                {act.type === 'run' ? <Activity size={20} /> : <Footprints size={20} />}
+                                            </div>
+                                            <div>
+                                                <p className="text-white font-bold text-sm uppercase">{act.type === 'run' ? 'Corrida' : 'Caminhada'}</p>
+                                                <p className="text-slate-500 text-xs">{new Date(act.date.seconds * 1000).toLocaleDateString()}</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-white font-mono font-bold">{act.distance.toFixed(2)} km</p>
+                                        </div>
+                                    </div>
+                                ))
                             )}
                         </div>
                     </div>
+                </MobileContainer>
+            );
+        }
+
+        // Share/Result Card
+        if (status === 'finished' || status === 'details') {
+            const data = status === 'details' && selectedActivity ? selectedActivity : {
+                date: Timestamp.now(), type: activityType, distance, elapsedTime, positions, pace: calculatePaceVal(distance, elapsedTime)
+            };
+
+            return (
+                <MobileContainer className="p-0 bg-black md:p-8 pb-32">
+                    <div className="w-full h-full flex flex-col items-center justify-center relative">
+                        {renderResultCard(data as ActivityData, status === 'details')}
+
+                        <div className="w-full max-w-[400px] flex gap-2 p-4">
+                            <input type="file" accept="image/*" ref={fileInputRef} onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) { const r = new FileReader(); r.onload = () => setUserPhoto(r.result as string); r.readAsDataURL(f); }
+                            }} className="hidden" />
+
+                            <button onClick={() => fileInputRef.current?.click()} className="flex-1 py-3 rounded-xl bg-white/10 text-white text-xs font-bold flex flex-col items-center gap-1">
+                                <Camera size={18} /> FOTO
+                            </button>
+                            <button onClick={handleNativeShare} disabled={isSharing} className="flex-1 py-3 rounded-xl bg-orange-500 text-white text-xs font-bold flex flex-col items-center gap-1 shadow-lg shadow-orange-900/40 disabled:opacity-50 disabled:cursor-not-allowed">
+                                {isSharing ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Share2 size={18} />}
+                                {isSharing ? 'GERANDO...' : 'STORIES'}
+                            </button>
+                            <button onClick={() => { resetApp(); setStatus(status === 'details' ? 'history' : 'idle'); }} className="flex-1 py-3 rounded-xl bg-white/10 text-white text-xs font-bold flex flex-col items-center gap-1">
+                                <Save size={18} /> {status === 'details' ? 'VOLTAR' : 'SALVAR'}
+                            </button>
+                        </div>
+                    </div>
+                </MobileContainer>
+            );
+        }
+
+        // Dashboard / Seleção
+        if (status === 'idle' || status === 'selecting') {
+            return (
+                <MobileContainer className="relative">
+                    <div className="absolute top-[-20%] right-[-20%] w-[500px] h-[500px] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: theme.primary }} />
+
+                    <div className="z-10 flex flex-col items-center justify-center h-full w-full p-6 pb-32">
+                        <div className="absolute top-6 right-6 flex items-center gap-4">
+                            <button onClick={() => setStatus('history')} className="text-white/60 hover:text-white transition-colors" title="Histórico"><History size={24} /></button>
+                            <button onClick={handleLogout} className="text-white/60 hover:text-white transition-colors" title="Sair"><LogOut size={24} /></button>
+                        </div>
+
+                        <div className="mb-8 w-32 h-32 rounded-full flex items-center justify-center relative shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-transparent">
+                            <img src={LOGO_SYMBOL} className="w-24 h-24 object-contain drop-shadow-2xl" />
+                        </div>
+                        <img src={LOGO_FULL} className="h-12 mb-4 object-contain" />
+
+                        {status === 'idle' ? (
+                            <>
+                                <p className="text-center mb-16 opacity-80 text-sm font-medium tracking-wide text-slate-300">O combustível de quem não para</p>
+                                <div className="space-y-4 w-full">
+                                    <button onClick={() => setStatus('selecting')}
+                                        className="w-full text-white font-bold py-5 rounded-2xl flex items-center justify-center transition-all shadow-lg hover:brightness-110 group border border-white/10 text-lg"
+                                        style={{ backgroundColor: theme.primary, boxShadow: `0 10px 30px -10px ${theme.primary}66` }}>
+                                        <Play className="mr-2 fill-white group-hover:scale-110 transition-transform" /> INICIAR
+                                    </button>
+                                    <button onClick={() => { setActivityType('run'); startSimulation(); }}
+                                        className="w-full border font-bold py-3 rounded-2xl flex items-center justify-center text-sm transition-all hover:bg-white/5 text-slate-400"
+                                        style={{ borderColor: theme.surface }}>
+                                        <Navigation className="mr-2" size={16} /> MODO SIMULAÇÃO
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="w-full animate-in slide-in-from-bottom-10 fade-in duration-300">
+                                <p className="text-center mb-8 font-bold text-white text-lg">Qual o desafio de hoje?</p>
+                                <div className="grid grid-cols-1 gap-4 w-full">
+                                    <button onClick={() => { setActivityType('run'); startTracking(); }}
+                                        className="w-full h-24 bg-gradient-to-r from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 rounded-2xl border border-white/10 flex items-center px-6 relative overflow-hidden group transition-all">
+                                        <div className="p-3 rounded-full bg-orange-500/20 mr-4 group-hover:scale-110 transition-transform"><Activity className="text-orange-500" size={24} /></div>
+                                        <div className="text-left"><span className="block font-black text-xl text-white italic">CORRIDA</span><span className="text-xs text-slate-400">Ritmo intenso</span></div>
+                                    </button>
+                                    <button onClick={() => { setActivityType('walk'); startTracking(); }}
+                                        className="w-full h-24 bg-gradient-to-r from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 rounded-2xl border border-white/10 flex items-center px-6 relative overflow-hidden group transition-all">
+                                        <div className="p-3 rounded-full bg-green-500/20 mr-4 group-hover:scale-110 transition-transform"><Footprints className="text-green-500" size={24} /></div>
+                                        <div className="text-left"><span className="block font-black text-xl text-white italic">CAMINHADA</span><span className="text-xs text-slate-400">Ritmo leve</span></div>
+                                    </button>
+                                </div>
+                                <button onClick={() => setStatus('idle')} className="mt-8 text-sm text-slate-500 hover:text-white w-full text-center">Cancelar</button>
+                            </div>
+                        )}
+                    </div>
+                </MobileContainer>
+            );
+        }
+
+        // Running UI
+        return (
+            <MobileContainer>
+                <div className="flex-1 relative flex flex-col p-6 h-full pb-28"> {/* Added padding bottom for nav space */}
+                    <div className="flex justify-between items-start z-10 mb-6">
+                        <div className="backdrop-blur rounded-2xl p-4 border border-white/5 shadow-lg" style={{ backgroundColor: `${theme.surface}E6` }}>
+                            <span className="text-xs uppercase block mb-1 opacity-60 text-slate-400">Distância</span>
+                            <span className="text-5xl font-black text-white tracking-tighter">{distance.toFixed(2)}</span>
+                            <span className="font-bold ml-1" style={{ color: theme.primary }}>km</span>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                            <div className="px-3 py-1 rounded-full text-xs font-bold animate-pulse flex items-center shadow-[0_0_15px_rgba(211,225,86,0.3)]"
+                                style={{ backgroundColor: `${theme.secondary}20`, color: theme.secondary, borderColor: `${theme.secondary}50`, borderWidth: '1px' }}>
+                                <Activity size={12} className="mr-2" /> GRAVANDO
+                            </div>
+                            <div className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 text-white uppercase tracking-wider">
+                                {activityType === 'run' ? 'CORRIDA' : 'CAMINHADA'}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex-1 rounded-3xl border border-white/5 relative overflow-hidden shadow-inner mb-6" style={{ backgroundColor: `${theme.surface}80` }}>
+                        <RouteVisualizer positions={positions} className="w-full h-full" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mt-auto mb-20 animate-in slide-in-from-bottom-4 duration-500">
+                        <div className="rounded-2xl p-4 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-24" style={{ backgroundColor: theme.surface }}>
+                            <Timer size={24} style={{ color: theme.primary }} className="mb-2" />
+                            <p className="text-2xl font-bold font-mono text-white leading-none">{formatTime(elapsedTime)}</p>
+                            <p className="text-[10px] uppercase opacity-60 mt-1 text-slate-400">Tempo Total</p>
+                        </div>
+                        <div className="rounded-2xl p-4 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-24" style={{ backgroundColor: theme.surface }}>
+                            {activityType === 'run' ? <Activity size={24} style={{ color: theme.primary }} className="mb-2" /> : <Footprints size={24} style={{ color: theme.primary }} className="mb-2" />}
+                            <p className="text-2xl font-bold font-mono text-white leading-none">{calculatePaceVal(distance, elapsedTime)}</p>
+                            <p className="text-[10px] uppercase opacity-60 mt-1 text-slate-400">Pace Médio</p>
+                        </div>
+                    </div>
                 </div>
-            </div>
+
+                {/* Control Bar for Running Mode - Replaces BottomNav during run */}
+                <div className="fixed bottom-6 left-6 right-6 p-4 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 border border-white/10 backdrop-blur-xl bg-black/80 flex items-center justify-between gap-4">
+                    <button onClick={() => { clearInterval(timerId.current); setStatus('paused'); }} className="w-14 h-14 rounded-full text-white flex items-center justify-center transition-colors border border-white/10 hover:bg-white/10 bg-white/5">
+                        <Pause fill="currentColor" size={24} />
+                    </button>
+                    <button onClick={stopTracking} className="flex-1 h-14 rounded-2xl flex items-center justify-center transition-all shadow-lg hover:brightness-110 active:scale-95 text-black font-bold text-sm tracking-wide" style={{ backgroundColor: theme.secondary }}>
+                        <Square fill="currentColor" className="mr-2" size={18} /> FINALIZAR TREINO
+                    </button>
+                </div>
+            </MobileContainer>
         );
     };
 
-    if (status === 'finished' || status === 'details') {
-        const data = status === 'details' && selectedActivity ? selectedActivity : {
-            date: Timestamp.now(), type: activityType, distance, elapsedTime, positions, pace: calculatePaceVal(distance, elapsedTime)
-        };
-
-        return (
-            <MobileContainer className="p-0 bg-black md:p-8">
-                <div className="w-full h-full flex flex-col items-center justify-center relative">
-                    {renderResultCard(data as ActivityData, status === 'details')}
-
-                    <div className="w-full max-w-[400px] flex gap-2 p-4">
-                        <input type="file" accept="image/*" ref={fileInputRef} onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) { const r = new FileReader(); r.onload = () => setUserPhoto(r.result as string); r.readAsDataURL(f); }
-                        }} className="hidden" />
-
-                        <button onClick={() => fileInputRef.current?.click()} className="flex-1 py-3 rounded-xl bg-white/10 text-white text-xs font-bold flex flex-col items-center gap-1">
-                            <Camera size={18} /> FOTO
-                        </button>
-                        <button onClick={handleNativeShare} disabled={isSharing} className="flex-1 py-3 rounded-xl bg-orange-500 text-white text-xs font-bold flex flex-col items-center gap-1 shadow-lg shadow-orange-900/40 disabled:opacity-50 disabled:cursor-not-allowed">
-                            {isSharing ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Share2 size={18} />}
-                            {isSharing ? 'GERANDO...' : 'STORIES'}
-                        </button>
-                        <button onClick={() => { resetApp(); setStatus(status === 'details' ? 'history' : 'idle'); }} className="flex-1 py-3 rounded-xl bg-white/10 text-white text-xs font-bold flex flex-col items-center gap-1">
-                            <Save size={18} /> {status === 'details' ? 'VOLTAR' : 'SALVAR'}
-                        </button>
-                    </div>
-                </div>
-            </MobileContainer>
-        );
-    }
-
-    // Dashboard / Seleção
-    if (status === 'idle' || status === 'selecting') {
-        return (
-            <MobileContainer className="relative">
-                <div className="absolute top-[-20%] right-[-20%] w-[500px] h-[500px] rounded-full blur-[120px] opacity-20" style={{ backgroundColor: theme.primary }} />
-
-                <div className="z-10 flex flex-col items-center justify-center h-full w-full p-6">
-                    <div className="absolute top-6 right-6 flex items-center gap-4">
-                        <button onClick={() => setStatus('history')} className="text-white/60 hover:text-white transition-colors" title="Histórico"><History size={24} /></button>
-                        <button onClick={handleLogout} className="text-white/60 hover:text-white transition-colors" title="Sair"><LogOut size={24} /></button>
-                    </div>
-
-                    <div className="mb-8 w-32 h-32 rounded-full flex items-center justify-center relative shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-transparent">
-                        <img src={LOGO_SYMBOL} className="w-24 h-24 object-contain drop-shadow-2xl" />
-                    </div>
-                    <img src={LOGO_FULL} className="h-12 mb-4 object-contain" />
-
-                    {status === 'idle' ? (
-                        <>
-                            <p className="text-center mb-16 opacity-80 text-sm font-medium tracking-wide text-slate-300">O combustível de quem não para</p>
-                            <div className="space-y-4 w-full">
-                                <button onClick={() => setStatus('selecting')}
-                                    className="w-full text-white font-bold py-5 rounded-2xl flex items-center justify-center transition-all shadow-lg hover:brightness-110 group border border-white/10 text-lg"
-                                    style={{ backgroundColor: theme.primary, boxShadow: `0 10px 30px -10px ${theme.primary}66` }}>
-                                    <Play className="mr-2 fill-white group-hover:scale-110 transition-transform" /> INICIAR
-                                </button>
-                                <button onClick={() => { setActivityType('run'); startSimulation(); }}
-                                    className="w-full border font-bold py-3 rounded-2xl flex items-center justify-center text-sm transition-all hover:bg-white/5 text-slate-400"
-                                    style={{ borderColor: theme.surface }}>
-                                    <Navigation className="mr-2" size={16} /> MODO SIMULAÇÃO
-                                </button>
-                            </div>
-                        </>
-                    ) : (
-                        <div className="w-full animate-in slide-in-from-bottom-10 fade-in duration-300">
-                            <p className="text-center mb-8 font-bold text-white text-lg">Qual o desafio de hoje?</p>
-                            <div className="grid grid-cols-1 gap-4 w-full">
-                                <button onClick={() => { setActivityType('run'); startTracking(); }}
-                                    className="w-full h-24 bg-gradient-to-r from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 rounded-2xl border border-white/10 flex items-center px-6 relative overflow-hidden group transition-all">
-                                    <div className="p-3 rounded-full bg-orange-500/20 mr-4 group-hover:scale-110 transition-transform"><Activity className="text-orange-500" size={24} /></div>
-                                    <div className="text-left"><span className="block font-black text-xl text-white italic">CORRIDA</span><span className="text-xs text-slate-400">Ritmo intenso</span></div>
-                                </button>
-                                <button onClick={() => { setActivityType('walk'); startTracking(); }}
-                                    className="w-full h-24 bg-gradient-to-r from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 rounded-2xl border border-white/10 flex items-center px-6 relative overflow-hidden group transition-all">
-                                    <div className="p-3 rounded-full bg-green-500/20 mr-4 group-hover:scale-110 transition-transform"><Footprints className="text-green-500" size={24} /></div>
-                                    <div className="text-left"><span className="block font-black text-xl text-white italic">CAMINHADA</span><span className="text-xs text-slate-400">Ritmo leve</span></div>
-                                </button>
-                            </div>
-                            <button onClick={() => setStatus('idle')} className="mt-8 text-sm text-slate-500 hover:text-white w-full text-center">Cancelar</button>
-                        </div>
-                    )}
-                </div>
-            </MobileContainer>
-        );
-    }
-
-    // Running UI
     return (
-        <MobileContainer>
-            <div className="flex-1 relative flex flex-col p-6 h-full">
-                <div className="flex justify-between items-start z-10 mb-6">
-                    <div className="backdrop-blur rounded-2xl p-4 border border-white/5 shadow-lg" style={{ backgroundColor: `${theme.surface}E6` }}>
-                        <span className="text-xs uppercase block mb-1 opacity-60 text-slate-400">Distância</span>
-                        <span className="text-5xl font-black text-white tracking-tighter">{distance.toFixed(2)}</span>
-                        <span className="font-bold ml-1" style={{ color: theme.primary }}>km</span>
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                        <div className="px-3 py-1 rounded-full text-xs font-bold animate-pulse flex items-center shadow-[0_0_15px_rgba(211,225,86,0.3)]"
-                            style={{ backgroundColor: `${theme.secondary}20`, color: theme.secondary, borderColor: `${theme.secondary}50`, borderWidth: '1px' }}>
-                            <Activity size={12} className="mr-2" /> GRAVANDO
-                        </div>
-                        <div className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 text-white uppercase tracking-wider">
-                            {activityType === 'run' ? 'CORRIDA' : 'CAMINHADA'}
-                        </div>
-                    </div>
-                </div>
-                <div className="flex-1 rounded-3xl border border-white/5 relative overflow-hidden shadow-inner mb-6" style={{ backgroundColor: `${theme.surface}80` }}>
-                    <RouteVisualizer positions={positions} className="w-full h-full" />
-                </div>
-                <div className="grid grid-cols-2 gap-4 mt-auto mb-24">
-                    <div className="rounded-2xl p-4 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-24" style={{ backgroundColor: theme.surface }}>
-                        <Timer size={24} style={{ color: theme.primary }} className="mb-2" />
-                        <p className="text-2xl font-bold font-mono text-white leading-none">{formatTime(elapsedTime)}</p>
-                        <p className="text-[10px] uppercase opacity-60 mt-1 text-slate-400">Tempo Total</p>
-                    </div>
-                    <div className="rounded-2xl p-4 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-24" style={{ backgroundColor: theme.surface }}>
-                        {activityType === 'run' ? <Activity size={24} style={{ color: theme.primary }} className="mb-2" /> : <Footprints size={24} style={{ color: theme.primary }} className="mb-2" />}
-                        <p className="text-2xl font-bold font-mono text-white leading-none">{calculatePaceVal(distance, elapsedTime)}</p>
-                        <p className="text-[10px] uppercase opacity-60 mt-1 text-slate-400">Pace Médio</p>
-                    </div>
-                </div>
-            </div>
-            <div className="absolute bottom-0 left-0 right-0 p-6 pb-8 rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-20 border-t border-white/5" style={{ backgroundColor: theme.surface }}>
-                <div className="flex items-center justify-center gap-6">
-                    <button onClick={() => { clearInterval(timerId.current); setStatus('paused'); }} className="w-16 h-16 rounded-full text-white flex items-center justify-center transition-colors border border-white/10 hover:bg-white/10 bg-black/50">
-                        <Pause fill="currentColor" size={24} />
-                    </button>
-                    <button onClick={stopTracking} className="flex-1 text-white font-bold h-16 rounded-2xl flex items-center justify-center transition-all shadow-lg hover:brightness-110" style={{ backgroundColor: theme.primary }}>
-                        <Square fill="currentColor" className="mr-2" size={18} /> FINALIZAR
-                    </button>
-                </div>
-            </div>
-        </MobileContainer>
+        <NavbarWrapper status={status} setStatus={setStatus} handleLogout={handleLogout}>
+            {content()}
+        </NavbarWrapper>
     );
 }
+
+// Wrapper component to include BottomNav conditionally
+function NavbarWrapper({ children, status, setStatus, handleLogout }: { children: React.ReactNode, status: string, setStatus: (s: any) => void, handleLogout: () => void }) {
+    // Determine which tab should be active based on status
+    let currentScreen = 'home';
+    if (status === 'history' || status === 'details') currentScreen = 'activities';
+    if (status === 'selecting' || status === 'running' || status === 'paused') currentScreen = 'record';
+
+    const handleNavigation = (screen: string) => {
+        switch (screen) {
+            case 'home':
+                setStatus('idle');
+                break;
+            case 'challenges':
+                // Placeholder for Challenges
+                alert('Funcionalidade de Desafios em breve!');
+                break;
+            case 'record':
+                if (status !== 'running' && status !== 'paused') {
+                    setStatus('selecting');
+                }
+                break;
+            case 'activities':
+                setStatus('history');
+                break;
+            case 'account':
+                // Placeholder for Account or Logout
+                if (window.confirm('Deseja sair da sua conta?')) {
+                    handleLogout();
+                }
+                break;
+        }
+    };
+
+    // Don't show BottomNav on Auth, Running, Paused (use specific controls), or Result screens if preferred
+    // For now, let's hide it during the actual RUN to avoid clutter, or keep it if requested. 
+    // The design shows a "BottomNav", but during a RUN usually we have specific controls.
+    // I will HIDE it during 'running' and 'paused' to show the specific run controls instead.
+    const showNavbar = status !== 'auth' && status !== 'running' && status !== 'paused';
+
+    return (
+        <>
+            {children}
+            {showNavbar && <BottomNav currentScreen={currentScreen} onNavigate={handleNavigation} />}
+        </>
+    );
+}
+
+
