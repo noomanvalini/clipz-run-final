@@ -4,6 +4,8 @@ import { Play, Pause, Square, Share2, MapPin, Activity, Timer, Navigation, Spark
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, query, Timestamp, orderBy } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
+import { UserProfile } from './components/UserProfile';
 import { BottomNav } from './components/BottomNav'; // Import BottomNav
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -20,6 +22,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // --- Configuração das Logos ---
 const LOGO_SYMBOL = "/Clipz RUN@4x.png";
@@ -140,7 +143,7 @@ const MobileContainer = ({ children, className }: { children: React.ReactNode, c
 export default function App() {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [authLoading, setAuthLoading] = useState(true);
-    const [status, setStatus] = useState<'auth' | 'idle' | 'history' | 'selecting' | 'running' | 'paused' | 'finished' | 'details'>('auth');
+    const [status, setStatus] = useState<'auth' | 'idle' | 'history' | 'selecting' | 'running' | 'paused' | 'finished' | 'details' | 'profile'>('auth');
 
     // Auth States
     const [isLogin, setIsLogin] = useState(true);
@@ -484,6 +487,19 @@ export default function App() {
             );
         };
 
+        // Profile Screen
+        if (status === 'profile' && currentUser) {
+            return (
+                <UserProfile
+                    user={currentUser}
+                    db={db}
+                    storage={storage}
+                    onBack={() => setStatus('idle')}
+                    onLogout={handleLogout}
+                />
+            );
+        }
+
         // History Screen
         if (status === 'history') {
             return (
@@ -665,18 +681,19 @@ export default function App() {
     };
 
     return (
-        <NavbarWrapper status={status} setStatus={setStatus} handleLogout={handleLogout}>
+        <NavbarWrapper status={status} setStatus={setStatus}>
             {content()}
         </NavbarWrapper>
     );
 }
 
 // Wrapper component to include BottomNav conditionally
-function NavbarWrapper({ children, status, setStatus, handleLogout }: { children: React.ReactNode, status: string, setStatus: (s: any) => void, handleLogout: () => void }) {
+function NavbarWrapper({ children, status, setStatus }: { children: React.ReactNode, status: string, setStatus: (s: any) => void }) {
     // Determine which tab should be active based on status
     let currentScreen = 'home';
     if (status === 'history' || status === 'details') currentScreen = 'activities';
     if (status === 'selecting' || status === 'running' || status === 'paused') currentScreen = 'record';
+    if (status === 'profile') currentScreen = 'account';
 
     const handleNavigation = (screen: string) => {
         switch (screen) {
@@ -696,10 +713,7 @@ function NavbarWrapper({ children, status, setStatus, handleLogout }: { children
                 setStatus('history');
                 break;
             case 'account':
-                // Placeholder for Account or Logout
-                if (window.confirm('Deseja sair da sua conta?')) {
-                    handleLogout();
-                }
+                setStatus('profile');
                 break;
         }
     };
