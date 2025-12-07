@@ -44,13 +44,19 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, db, storage, onB
         }
 
         setUsernameStatus('checking');
-        const q = query(collection(db, 'users'), where('username', '==', value));
-        const snapshots = await getDocs(q);
+        try {
+            const q = query(collection(db, 'users'), where('username', '==', value));
+            const snapshots = await getDocs(q);
 
-        // Filter out if it's the current user's username
-        const isTaken = !snapshots.empty && snapshots.docs.some(d => d.id !== user.uid);
+            // Filter out if it's the current user's username
+            const isTaken = !snapshots.empty && snapshots.docs.some(d => d.id !== user.uid);
 
-        setUsernameStatus(isTaken ? 'unavailable' : 'available');
+            setUsernameStatus(isTaken ? 'unavailable' : 'available');
+        } catch (err) {
+            console.error("Erro checkUsername:", err);
+            // On error (e.g. index missing), don't block. Assume available but warn.
+            setUsernameStatus('available');
+        }
     };
 
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -64,13 +70,14 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, db, storage, onB
             const url = await getDownloadURL(storageRef);
 
             await updateProfile(user, { photoURL: url });
-            await updateDoc(doc(db, 'users', user.uid), { photoURL: url });
+            // Use setDoc with merge to ensure doc exists
+            await setDoc(doc(db, 'users', user.uid), { photoURL: url }, { merge: true });
 
             setPhotoURL(url);
             setMessage({ type: 'success', text: 'Foto atualizada com sucesso!' });
         } catch (error: any) {
             console.error(error);
-            setMessage({ type: 'error', text: 'Erro ao atualizar foto.' });
+            setMessage({ type: 'error', text: 'Erro ao atualizar foto: ' + (error.message || error) });
         } finally {
             setIsLoading(false);
         }
