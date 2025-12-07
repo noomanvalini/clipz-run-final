@@ -26,23 +26,23 @@ export const BottomNav: React.FC<BottomNavProps> = ({ onNavigate, currentScreen 
 
     return (
         <div className="fixed bottom-6 left-4 right-4 z-50 flex justify-center pointer-events-none">
-            <div className="relative flex items-center justify-between px-2 py-2 bg-[#282828]/65 backdrop-blur-md rounded-2xl shadow-lg w-full max-w-md pointer-events-auto border border-white/5">
+            <div className="relative flex items-center justify-between p-[0.3rem] bg-[#282828]/65 backdrop-blur-md rounded-2xl shadow-lg w-full max-w-md pointer-events-auto border border-white/5">
                 {navItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = activeTab === item.id;
 
                     if (item.isCentral) {
                         return (
-                            <div key={item.id} className="relative -top-8 px-2">
+                            <div key={item.id} className="flex-1 flex justify-center items-center">
                                 <button
                                     onClick={() => handleNavClick(item.id)}
-                                    className="w-16 h-16 rounded-full bg-[#D3E156] flex items-center justify-center shadow-lg transform transition-transform active:scale-95 border-4 border-[#161B22]"
+                                    className="w-14 h-14 rounded-full bg-[#D3E156] flex items-center justify-center shadow-lg transition-transform active:scale-95"
                                     aria-label={item.label}
                                 >
                                     <Icon
                                         size={28}
                                         fill="#161B22"
-                                        className="text-[#161B22] translate-x-[2px]" // Ajuste fino visual se necessário
+                                        className="text-[#161B22] translate-x-[2px]"
                                     />
                                 </button>
                             </div>
