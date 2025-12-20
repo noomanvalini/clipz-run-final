@@ -64,31 +64,26 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, db, storage, onB
         if (!file) return;
 
         setIsLoading(true);
-        setMessage({ type: 'success', text: 'Iniciando upload...' }); // Use success (green) for neutral progress for now, or add a 'info' type
+        setMessage({ type: 'success', text: 'Iniciando upload...' });
 
         try {
-            console.log('[UserProfile] Starting avatar upload for user:', user.uid);
             const storageRef = ref(storage, `avatars/${user.uid}`);
 
             setMessage({ type: 'success', text: 'Enviando imagem...' });
             await uploadBytes(storageRef, file);
-            console.log('[UserProfile] Upload complete, getting URL...');
 
             const url = await getDownloadURL(storageRef);
-            console.log('[UserProfile] URL obtained:', url);
 
             setMessage({ type: 'success', text: 'Atualizando perfil...' });
             await updateProfile(user, { photoURL: url });
 
             // Use setDoc with merge to ensure doc exists
-            console.log('[UserProfile] Updating Firestore...');
             await setDoc(doc(db, 'users', user.uid), { photoURL: url }, { merge: true });
 
             setPhotoURL(url);
             setMessage({ type: 'success', text: 'Foto atualizada com sucesso!' });
-            console.log('[UserProfile] All done.');
         } catch (error: any) {
-            console.error('[UserProfile] Error updating avatar:', error);
+            console.error('Erro ao atualizar foto:', error);
             setMessage({ type: 'error', text: 'Erro ao atualizar foto: ' + (error.message || error) });
         } finally {
             setIsLoading(false);
