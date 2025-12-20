@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, updateProfile, sendPasswordResetEmail, deleteUser, getAuth } from 'firebase/auth';
-import { Firestore, collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { Firestore, collection, query, where, getDocs, doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { FirebaseStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Camera, Save, Lock, LogOut, ChevronLeft, Trash2, AlertTriangle, Check, X } from 'lucide-react';
 
@@ -64,19 +64,31 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, db, storage, onB
         if (!file) return;
 
         setIsLoading(true);
-        try {
-            const storageRef = ref(storage, `avatars/${user.uid}`);
-            await uploadBytes(storageRef, file);
-            const url = await getDownloadURL(storageRef);
+        setMessage({ type: 'success', text: 'Iniciando upload...' }); // Use success (green) for neutral progress for now, or add a 'info' type
 
+        try {
+            console.log('[UserProfile] Starting avatar upload for user:', user.uid);
+            const storageRef = ref(storage, `avatars/${user.uid}`);
+
+            setMessage({ type: 'success', text: 'Enviando imagem...' });
+            await uploadBytes(storageRef, file);
+            console.log('[UserProfile] Upload complete, getting URL...');
+
+            const url = await getDownloadURL(storageRef);
+            console.log('[UserProfile] URL obtained:', url);
+
+            setMessage({ type: 'success', text: 'Atualizando perfil...' });
             await updateProfile(user, { photoURL: url });
+
             // Use setDoc with merge to ensure doc exists
+            console.log('[UserProfile] Updating Firestore...');
             await setDoc(doc(db, 'users', user.uid), { photoURL: url }, { merge: true });
 
             setPhotoURL(url);
             setMessage({ type: 'success', text: 'Foto atualizada com sucesso!' });
+            console.log('[UserProfile] All done.');
         } catch (error: any) {
-            console.error(error);
+            console.error('[UserProfile] Error updating avatar:', error);
             setMessage({ type: 'error', text: 'Erro ao atualizar foto: ' + (error.message || error) });
         } finally {
             setIsLoading(false);
