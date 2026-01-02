@@ -1,28 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas';
-import { Play, Pause, Square, Share2, MapPin, Activity, Timer, Navigation, Sparkles, Camera, Footprints, History, LogOut, ChevronLeft, Save, User as UserIcon, Lock } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, query, Timestamp, orderBy } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { Play, Pause, Square, Share2, MapPin, Activity, Timer, Navigation, Sparkles, Camera, Footprints, History, LogOut, ChevronLeft, Save, User as UserIcon, Lock, Flame } from 'lucide-react';
+import { auth, db, storage } from './firebase'; // Import shared instances
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { collection, addDoc, onSnapshot, query, Timestamp, orderBy, getDoc, doc } from 'firebase/firestore';
+// Removed getStorage import as it is now imported from './firebase'
 import { UserProfile } from './components/UserProfile';
 import { BottomNav } from './components/BottomNav'; // Import BottomNav
-
-// --- CONFIGURAÇÃO FIREBASE ---
-const firebaseConfig = {
-    apiKey: "AIzaSyDBv_Uue2q-t3tU2jWz7moy5F0PemrEt1A",
-    authDomain: "clipzrun.firebaseapp.com",
-    projectId: "clipzrun",
-    storageBucket: "clipzrun.firebasestorage.app",
-    messagingSenderId: "590774403152",
-    appId: "1:590774403152:web:05d8361816352512599155",
-    measurementId: "G-XP83J48JYF"
-};
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app);
 
 // --- Configuração das Logos ---
 const LOGO_SYMBOL = "/Clipz RUN@4x.png";
@@ -47,6 +31,7 @@ interface ActivityData {
     elapsedTime: number;
     positions: number[][];
     pace: string;
+    calories: number;
     aiCaption?: string;
 }
 
@@ -98,18 +83,33 @@ const calculatePaceVal = (distance: number, elapsedTime: number) => {
 };
 
 // --- Visualizador de Rota ---
-const RouteVisualizer = ({ positions, className }: { positions: number[][], className?: string }) => {
+// --- Visualizador de Rota (Auto-Center) ---
+const RouteVisualizer = ({ positions, className, followMode = false }: { positions: number[][], className?: string, followMode?: boolean }) => {
     if (!positions || positions.length < 2) return <div className={className} />;
 
     const lats = positions.map(p => p[0]);
     const lngs = positions.map(p => p[1]);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
+    let minLat = Math.min(...lats);
+    let maxLat = Math.max(...lats);
+    let minLng = Math.min(...lngs);
+    let maxLng = Math.max(...lngs);
     const padding = 0.0002;
 
+    // Follow Mode: Centrar na última posição com zoom fixo (janela deslizante)
+    if (followMode && positions.length > 0) {
+        const lastPos = positions[positions.length - 1];
+        const windowSize = 0.003; // Aprox 300-400m de raio no mapa
+        minLat = lastPos[0] - windowSize;
+        maxLat = lastPos[0] + windowSize;
+        minLng = lastPos[1] - windowSize;
+        maxLng = lastPos[1] + windowSize;
+    }
+
+    // Filtrar pontos apenas se estiver em followMode para otimizar SVG?
+    // No momento, desenhamos tudo, mas o viewBox corta o que está fora.
+
     const pointsString = positions.map(([lat, lng]) => {
+        // Normalização baseada no ViewBox dinâmico
         const x = ((lng - (minLng - padding)) / ((maxLng + padding) - (minLng - padding))) * 100;
         const y = 100 - ((lat - (minLat - padding)) / ((maxLat + padding) - (minLat - padding))) * 100;
         return `${x},${y}`;
@@ -121,7 +121,7 @@ const RouteVisualizer = ({ positions, className }: { positions: number[][], clas
                 <polyline points={pointsString} fill="none" stroke="black" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 blur-sm" />
                 <polyline points={pointsString} fill="none" stroke={theme.primary} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" className="drop-shadow-lg" />
                 {positions.length > 0 && (
-                    <circle cx={pointsString.split(' ').pop()?.split(',')[0]} cy={pointsString.split(' ').pop()?.split(',')[1]} r="3" fill="white" stroke={theme.primary} strokeWidth="1" />
+                    <circle cx={pointsString.split(' ').pop()?.split(',')[0]} cy={pointsString.split(' ').pop()?.split(',')[1]} r="4" fill="white" stroke={theme.primary} strokeWidth="2" className="animate-pulse" />
                 )}
             </svg>
         </div>
@@ -156,6 +156,11 @@ export default function App() {
     const [positions, setPositions] = useState<number[][]>([]);
     const [elapsedTime, setElapsedTime] = useState(0);
     const [distance, setDistance] = useState(0);
+    const [calories, setCalories] = useState(0);
+
+    // User Data
+    const [userWeight, setUserWeight] = useState(70);
+    const wakeLock = useRef<any>(null);
 
     // UI States
     const [aiCaption, setAiCaption] = useState<string | null>(null);
@@ -179,6 +184,14 @@ export default function App() {
 
             if (user) {
                 setStatus('idle');
+                // Fetch User Weight
+                getDoc(doc(db, 'users', user.uid)).then(docSnap => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.weight) setUserWeight(parseFloat(data.weight));
+                    }
+                });
+
                 const activitiesRef = collection(db, 'users', user.uid, 'activities');
                 const q = query(activitiesRef, orderBy('date', 'desc'));
 
@@ -248,6 +261,35 @@ export default function App() {
         setLoadingAiCaption(false);
     };
 
+    // Calcular calorias em tempo real
+    useEffect(() => {
+        // Fórmula aprox: 1.036 * distância(km) * peso(kg)
+        // Caminhada pode ser um fator menor (ex: 0.7)
+        const factor = activityType === 'run' ? 1.036 : 0.7;
+        const cal = distance * userWeight * factor;
+        setCalories(Math.floor(cal));
+    }, [distance, userWeight, activityType]);
+
+    // Wake Lock API
+    const requestWakeLock = async () => {
+        try {
+            if ('wakeLock' in navigator) {
+                wakeLock.current = await (navigator as any).wakeLock.request('screen');
+                console.log('Wake Lock active');
+            }
+        } catch (err) {
+            console.error('Wake Lock error:', err);
+        }
+    };
+
+    const releaseWakeLock = async () => {
+        if (wakeLock.current) {
+            await wakeLock.current.release();
+            wakeLock.current = null;
+            console.log('Wake Lock released');
+        }
+    };
+
     const updatePositionLogic = (newPoint: number[]) => {
         setPositions(prev => {
             const lastPoint = prev.length > 0 ? prev[prev.length - 1] : null;
@@ -266,6 +308,7 @@ export default function App() {
     const startTracking = () => {
         if (!navigator.geolocation) return alert("Habilite o GPS.");
         setStatus('running');
+        requestWakeLock();
         timerId.current = setInterval(() => setElapsedTime(p => p + 1), 1000);
         // Correção: Removido 'distanceFilter' para evitar erro TS2353
         watchId.current = navigator.geolocation.watchPosition(
@@ -289,6 +332,7 @@ export default function App() {
         clearInterval(timerId.current);
         if (watchId.current) navigator.geolocation.clearWatch(watchId.current);
         if (simulationInterval.current) clearInterval(simulationInterval.current);
+        releaseWakeLock();
 
         setStatus('finished');
 
@@ -303,6 +347,7 @@ export default function App() {
                     distance: distance,
                     elapsedTime: elapsedTime,
                     pace: calculatePaceVal(distance, elapsedTime),
+                    calories: calories,
                     positions: positionsForDb
                 });
             } catch (e: any) {
@@ -359,6 +404,7 @@ export default function App() {
         setPositions([]);
         setElapsedTime(0);
         setDistance(0);
+        setCalories(0);
         setAiCaption(null);
         setUserPhoto(null);
         setIsSharing(false);
@@ -471,6 +517,10 @@ export default function App() {
                                         <p className="text-[10px] uppercase font-bold opacity-100 text-white">Ritmo</p>
                                         <p className="text-xl font-black text-white leading-none">{data.pace || calculatePaceVal(data.distance, data.elapsedTime)}</p>
                                     </div>
+                                    <div className="backdrop-blur-xl rounded-2xl p-3 flex-1 flex flex-col justify-center border-l-2 bg-white/5" style={{ borderColor: theme.secondary }}>
+                                        <p className="text-[10px] uppercase font-bold opacity-100 text-white">Calorias</p>
+                                        <p className="text-xl font-black text-white leading-none">{data.calories || 0} <span className="text-[10px] font-normal">kcal</span></p>
+                                    </div>
                                 </div>
                             </div>
 
@@ -544,7 +594,7 @@ export default function App() {
         // Share/Result Card
         if (status === 'finished' || status === 'details') {
             const data = status === 'details' && selectedActivity ? selectedActivity : {
-                date: Timestamp.now(), type: activityType, distance, elapsedTime, positions, pace: calculatePaceVal(distance, elapsedTime)
+                date: Timestamp.now(), type: activityType, distance, elapsedTime, positions, pace: calculatePaceVal(distance, elapsedTime), calories
             };
 
             return (
@@ -651,18 +701,23 @@ export default function App() {
                         </div>
                     </div>
                     <div className="flex-1 rounded-3xl border border-white/5 relative overflow-hidden shadow-inner mb-6" style={{ backgroundColor: `${theme.surface}80` }}>
-                        <RouteVisualizer positions={positions} className="w-full h-full" />
+                        <RouteVisualizer positions={positions} className="w-full h-full" followMode={true} />
                     </div>
-                    <div className="grid grid-cols-2 gap-4 mt-auto mb-20 animate-in slide-in-from-bottom-4 duration-500">
-                        <div className="rounded-2xl p-4 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-24" style={{ backgroundColor: theme.surface }}>
-                            <Timer size={24} style={{ color: theme.primary }} className="mb-2" />
-                            <p className="text-2xl font-bold font-mono text-white leading-none">{formatTime(elapsedTime)}</p>
-                            <p className="text-[10px] uppercase opacity-60 mt-1 text-slate-400">Tempo Total</p>
+                    <div className="grid grid-cols-3 gap-3 mt-auto mb-20 animate-in slide-in-from-bottom-4 duration-500">
+                        <div className="rounded-2xl p-3 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-20" style={{ backgroundColor: theme.surface }}>
+                            <Timer size={20} style={{ color: theme.primary }} className="mb-1" />
+                            <p className="text-xl font-bold font-mono text-white leading-none">{formatTime(elapsedTime)}</p>
+                            <p className="text-[9px] uppercase opacity-60 mt-1 text-slate-400">Tempo</p>
                         </div>
-                        <div className="rounded-2xl p-4 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-24" style={{ backgroundColor: theme.surface }}>
-                            {activityType === 'run' ? <Activity size={24} style={{ color: theme.primary }} className="mb-2" /> : <Footprints size={24} style={{ color: theme.primary }} className="mb-2" />}
-                            <p className="text-2xl font-bold font-mono text-white leading-none">{calculatePaceVal(distance, elapsedTime)}</p>
-                            <p className="text-[10px] uppercase opacity-60 mt-1 text-slate-400">Pace Médio</p>
+                        <div className="rounded-2xl p-3 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-20" style={{ backgroundColor: theme.surface }}>
+                            {activityType === 'run' ? <Activity size={20} style={{ color: theme.primary }} className="mb-1" /> : <Footprints size={20} style={{ color: theme.primary }} className="mb-1" />}
+                            <p className="text-xl font-bold font-mono text-white leading-none">{calculatePaceVal(distance, elapsedTime)}</p>
+                            <p className="text-[9px] uppercase opacity-60 mt-1 text-slate-400">Pace</p>
+                        </div>
+                        <div className="rounded-2xl p-3 border border-white/5 flex flex-col items-center justify-center shadow-lg text-center h-20" style={{ backgroundColor: theme.surface }}>
+                            <Flame size={20} style={{ color: theme.primary }} className="mb-1" />
+                            <p className="text-xl font-bold font-mono text-white leading-none">{calories}</p>
+                            <p className="text-[9px] uppercase opacity-60 mt-1 text-slate-400">Kcal</p>
                         </div>
                     </div>
                 </div>

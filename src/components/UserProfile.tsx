@@ -15,6 +15,8 @@ interface UserProfileProps {
 export const UserProfile: React.FC<UserProfileProps> = ({ user, db, storage, onBack, onLogout }) => {
     const [displayName, setDisplayName] = useState(user.displayName || '');
     const [username, setUsername] = useState('');
+    const [weight, setWeight] = useState('');
+    const [height, setHeight] = useState('');
     const [email] = useState(user.email || '');
     const [photoURL, setPhotoURL] = useState(user.photoURL || '');
 
@@ -32,6 +34,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, db, storage, onB
             if (userDoc.exists()) {
                 const data = userDoc.data();
                 if (data.username) setUsername(data.username);
+                if (data.weight) setWeight(data.weight);
+                if (data.height) setHeight(data.height);
             }
         };
         loadUserData();
@@ -111,6 +115,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, db, storage, onB
             await setDoc(userRef, {
                 username,
                 displayName,
+                weight,
+                height,
                 email,
                 photoURL: user.photoURL,
                 updatedAt: new Date()
@@ -235,6 +241,29 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, db, storage, onB
                                 </div>
                             </div>
                             {usernameStatus === 'unavailable' && <p className="text-red-500 text-[10px] ml-1">Este username já está em uso.</p>}
+                        </div>
+                        {/* Weight and Height */}
+                        <div className="flex gap-4">
+                            <div className="space-y-2 flex-1">
+                                <label className="text-xs uppercase font-bold text-slate-500 ml-1">Peso (kg)</label>
+                                <input
+                                    type="number"
+                                    value={weight}
+                                    onChange={(e) => setWeight(e.target.value)}
+                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-4 text-white placeholder-slate-600 focus:border-[#FF6E61] outline-none transition-colors"
+                                    placeholder="Ex: 70"
+                                />
+                            </div>
+                            <div className="space-y-2 flex-1">
+                                <label className="text-xs uppercase font-bold text-slate-500 ml-1">Altura (cm)</label>
+                                <input
+                                    type="number"
+                                    value={height}
+                                    onChange={(e) => setHeight(e.target.value)}
+                                    className="w-full bg-black/30 border border-white/10 rounded-xl p-4 text-white placeholder-slate-600 focus:border-[#FF6E61] outline-none transition-colors"
+                                    placeholder="Ex: 175"
+                                />
+                            </div>
                         </div>
 
                         {/* Email (Read Only) */}
