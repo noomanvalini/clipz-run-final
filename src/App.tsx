@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import html2canvas from 'html2canvas';
-import { Play, Pause, Square, Share2, MapPin, Activity, Timer, Navigation, Sparkles, Camera, Footprints, History, LogOut, ChevronLeft, Save, User as UserIcon, Lock, Flame } from 'lucide-react';
+import { Play, Pause, Square, Share2, MapPin, Activity, Timer, Navigation, Camera, Footprints, History, LogOut, ChevronLeft, Save, User as UserIcon, Lock, Flame, Trash2 } from 'lucide-react';
 import { auth, db, storage } from './firebase'; // Import shared instances
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { collection, addDoc, onSnapshot, query, Timestamp, orderBy, getDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, Timestamp, orderBy, getDoc, doc, deleteDoc } from 'firebase/firestore';
 // Removed getStorage import as it is now imported from './firebase'
 import { UserProfile } from './components/UserProfile';
 import { BottomNav } from './components/BottomNav'; // Import BottomNav
@@ -28,6 +28,7 @@ interface ActivityData {
     date: any;
     type: 'run' | 'walk';
     distance: number;
+    locationName?: string;
     elapsedTime: number;
     positions: number[][];
     pace: string;
@@ -157,6 +158,7 @@ export default function App() {
     const [elapsedTime, setElapsedTime] = useState(0);
     const [distance, setDistance] = useState(0);
     const [calories, setCalories] = useState(0);
+    const [locationName, setLocationName] = useState('São Paulo, SP');
 
     // User Data
     const [userWeight, setUserWeight] = useState(70);
@@ -251,6 +253,26 @@ export default function App() {
         }
     }, [status]);
 
+    // Reverse Geocoding (OpenStreetMap)
+    const fetchLocationName = async (lat: number, lng: number) => {
+        try {
+            const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+            const data = await resp.json();
+            if (data.address) {
+                const city = data.address.city || data.address.town || data.address.village || data.address.municipality;
+                let state = data.address.state;
+                // Simple state mapping (expand as needed or use state_code if available)
+                const stateMap: Record<string, string> = { "São Paulo": "SP", "Rio de Janeiro": "RJ", "Minas Gerais": "MG" };
+                if (stateMap[state]) state = stateMap[state];
+
+                if (city && state) setLocationName(`${city}, ${state}`);
+                else if (city) setLocationName(city);
+            }
+        } catch (err) {
+            console.error("Geocoding error:", err);
+        }
+    };
+
     const generateCaption = async (d: number, t: number, p: string, type: string) => {
         setLoadingAiCaption(true);
         const activityName = type === 'run' ? 'Corrida' : 'Caminhada';
@@ -297,10 +319,14 @@ export default function App() {
                 const distDelta = getDistanceFromLatLonInKm(lastPoint[0], lastPoint[1], newPoint[0], newPoint[1]);
                 if (distDelta > 0.002) {
                     setDistance(d => d + distDelta);
+                    // Fetch location on first move or periodically? For now, on start is better or finished. 
+                    // Let's rely on StartTracking to fetch initial pos.
                     return [...prev, newPoint];
                 }
                 return prev;
             }
+            // First point
+            fetchLocationName(newPoint[0], newPoint[1]);
             return [newPoint];
         });
     };
@@ -309,13 +335,35 @@ export default function App() {
         if (!navigator.geolocation) return alert("Habilite o GPS.");
         setStatus('running');
         requestWakeLock();
+        if (status !== 'paused') {
+            setElapsedTime(0);
+            setDistance(0);
+            setPositions([]);
+        }
+        // If resuming, don't reset. If starting fresh, reset. 
+        // Logic constraint: 'startTracking' is called by "INICIAR" which implies fresh start.
+        // We need a separate 'resumeTracking'.
+
         timerId.current = setInterval(() => setElapsedTime(p => p + 1), 1000);
-        // Correção: Removido 'distanceFilter' para evitar erro TS2353
+
         watchId.current = navigator.geolocation.watchPosition(
             (p) => updatePositionLogic([p.coords.latitude, p.coords.longitude]),
             console.error, { enableHighAccuracy: true }
         );
     };
+
+    const resumeTracking = () => {
+        setStatus('running');
+        requestWakeLock();
+        timerId.current = setInterval(() => setElapsedTime(p => p + 1), 1000);
+        watchId.current = navigator.geolocation.watchPosition(
+            (p) => updatePositionLogic([p.coords.latitude, p.coords.longitude]),
+            console.error, { enableHighAccuracy: true }
+        );
+    }
+
+    // Fix: startTracking should basically be fresh start. 
+    // Button "INICIAR" calls startTracking. Button "Resume" should call resumeTracking.
 
     const startSimulation = () => {
         setStatus('running');
@@ -335,6 +383,8 @@ export default function App() {
         releaseWakeLock();
 
         setStatus('finished');
+        // Fetch final location name to be sure
+        if (positions.length > 0) fetchLocationName(positions[positions.length - 1][0], positions[positions.length - 1][1]);
 
         if (currentUser) {
             try {
@@ -348,11 +398,25 @@ export default function App() {
                     elapsedTime: elapsedTime,
                     pace: calculatePaceVal(distance, elapsedTime),
                     calories: calories,
+                    locationName: locationName,
                     positions: positionsForDb
                 });
             } catch (e: any) {
                 console.error("Erro ao salvar atividade:", e);
                 alert(`Erro ao salvar treino: ${e.message || e}`);
+            }
+        }
+    };
+
+    const handleDeleteActivity = async (id: string) => {
+        if (!currentUser || !id) return;
+        if (confirm("Tem certeza que deseja excluir este treino?")) {
+            try {
+                await deleteDoc(doc(db, 'users', currentUser.uid, 'activities', id));
+                setStatus('history');
+                setSelectedActivity(null);
+            } catch (e) {
+                alert("Erro ao excluir.");
             }
         }
     };
@@ -457,9 +521,10 @@ export default function App() {
     // Main Content Wrapper
     const content = () => {
         // Share/Result Card
-        const renderResultCard = (data: ActivityData, isPreview = false) => {
-            const currentCaption = isPreview ? (selectedActivity?.aiCaption || "Belo treino!") : aiCaption;
+        const renderResultCard = (data: ActivityData, _isPreview = false) => {
+            // Removed currentCaption as AI text is hidden
             const activityName = data.type === 'run' ? 'CORRIDA' : 'CAMINHADA';
+            const locName = (data as any).locationName || locationName || "Localização";
 
             return (
                 <div ref={cardRef} className="w-full relative overflow-hidden flex flex-col bg-black transition-all duration-300 aspect-[9/16] rounded-[20px] shadow-2xl border border-white/10 max-h-[75vh]">
@@ -480,58 +545,58 @@ export default function App() {
                     </div>
 
                     {/* Overlay de Dados */}
-                    <div className="relative z-20 flex flex-col justify-between h-full p-6 pt-10">
+                    <div className="relative z-20 flex flex-col justify-between h-full p-6 pt-8">
+                        {/* Header: Logo & Location - Fixed Alignment */}
                         <div className="flex justify-between items-start">
-                            <div>
-                                <img src={LOGO_FULL} className="h-8 mb-2 object-contain" />
-                                <div className="flex items-center text-xs font-mono opacity-90 text-white">
-                                    <MapPin size={12} className="mr-1" style={{ color: theme.primary }} /> São Paulo, BR
+                            <div className="flex flex-col">
+                                <img src={LOGO_FULL} className="h-6 mb-1 object-contain self-start" />
+                                <div className="flex items-center text-[10px] font-mono opacity-90 text-white truncate max-w-[150px]">
+                                    <MapPin size={10} className="mr-1 shrink-0" style={{ color: theme.primary }} />
+                                    {locName}
                                 </div>
                             </div>
                             <div className="flex flex-col items-end">
-                                <span className="text-xs font-black px-3 py-1 rounded-full backdrop-blur-md shadow-lg mb-1 uppercase tracking-widest"
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full backdrop-blur-md shadow-lg mb-1 uppercase tracking-widest"
                                     style={{ backgroundColor: theme.secondary, color: '#000000' }}>
                                     {activityName}
                                 </span>
-                                <span className="text-[10px] text-white/70 font-mono">
+                                <span className="text-[9px] text-white/70 font-mono">
                                     {data.date instanceof Timestamp ? new Date(data.date.seconds * 1000).toLocaleDateString() : new Date().toLocaleDateString()}
                                 </span>
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="backdrop-blur-xl rounded-2xl p-4 border-l-4 shadow-lg bg-white/5" style={{ borderColor: theme.primary }}>
-                                    <p className="text-[10px] uppercase font-bold mb-1 opacity-100 text-white">Distância</p>
-                                    <div className="flex items-baseline">
-                                        <span className="text-4xl font-black text-white">{data.distance.toFixed(2)}</span>
-                                        <span className="text-sm font-bold ml-1" style={{ color: theme.primary }}>km</span>
-                                    </div>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    <div className="backdrop-blur-xl rounded-2xl p-3 flex-1 flex flex-col justify-center border-l-2 bg-white/5" style={{ borderColor: theme.secondary }}>
-                                        <p className="text-[10px] uppercase font-bold opacity-100 text-white">Tempo</p>
-                                        <p className="text-xl font-black text-white leading-none">{formatTime(data.elapsedTime)}</p>
-                                    </div>
-                                    <div className="backdrop-blur-xl rounded-2xl p-3 flex-1 flex flex-col justify-center border-l-2 bg-white/5" style={{ borderColor: theme.secondary }}>
-                                        <p className="text-[10px] uppercase font-bold opacity-100 text-white">Ritmo</p>
-                                        <p className="text-xl font-black text-white leading-none">{data.pace || calculatePaceVal(data.distance, data.elapsedTime)}</p>
-                                    </div>
-                                    <div className="backdrop-blur-xl rounded-2xl p-3 flex-1 flex flex-col justify-center border-l-2 bg-white/5" style={{ borderColor: theme.secondary }}>
-                                        <p className="text-[10px] uppercase font-bold opacity-100 text-white">Calorias</p>
-                                        <p className="text-xl font-black text-white leading-none">{data.calories || 0} <span className="text-[10px] font-normal">kcal</span></p>
-                                    </div>
+                        {/* Space Cleaner */}
+                        <div className="flex-1"></div>
+
+                        {/* 2x2 Grid Stats */}
+                        <div className="grid grid-cols-2 gap-3 mb-6">
+                            {/* Row 1: Time | Distance */}
+                            <div className="backdrop-blur-xl rounded-2xl p-3 border-l-2 bg-white/5 flex flex-col justify-center" style={{ borderColor: theme.secondary }}>
+                                <p className="text-[9px] uppercase font-bold opacity-80 text-white mb-0.5">Tempo</p>
+                                <p className="text-2xl font-black text-white leading-none">{formatTime(data.elapsedTime)}</p>
+                            </div>
+                            <div className="backdrop-blur-xl rounded-2xl p-3 border-l-2 bg-white/5 flex flex-col justify-center" style={{ borderColor: theme.primary }}>
+                                <p className="text-[9px] uppercase font-bold opacity-80 text-white mb-0.5">Distância</p>
+                                <div className="flex items-baseline">
+                                    <span className="text-3xl font-black text-white leading-none">{data.distance.toFixed(2)}</span>
+                                    <span className="text-xs font-bold ml-1 text-white/60">km</span>
                                 </div>
                             </div>
 
-                            <div className="backdrop-blur-md rounded-xl p-4 border border-white/5 bg-black/40 min-h-[60px] flex items-center justify-center">
-                                {(!isPreview && loadingAiCaption) ? (
-                                    <div className="flex items-center text-xs opacity-70 animate-pulse text-white"><Sparkles size={14} className="mr-2" /> Gerando legenda...</div>
-                                ) : (
-                                    <p className="text-sm italic text-center leading-relaxed text-white/90">"{currentCaption || aiCaption}"</p>
-                                )}
+                            {/* Row 2: Pace | Calories */}
+                            <div className="backdrop-blur-xl rounded-2xl p-3 border-l-2 bg-white/5 flex flex-col justify-center" style={{ borderColor: theme.secondary }}>
+                                <p className="text-[9px] uppercase font-bold opacity-80 text-white mb-0.5">Ritmo</p>
+                                <p className="text-xl font-black text-white leading-none">{data.pace || calculatePaceVal(data.distance, data.elapsedTime)}</p>
+                            </div>
+                            <div className="backdrop-blur-xl rounded-2xl p-3 border-l-2 bg-white/5 flex flex-col justify-center" style={{ borderColor: theme.primary }}>
+                                <p className="text-[9px] uppercase font-bold opacity-80 text-white mb-0.5">Calorias</p>
+                                <p className="text-xl font-black text-white leading-none">{(data as any).calories || 0}</p>
                             </div>
                         </div>
+
+                        {/* Remove AI Caption Text */}
+                        {/* Empty spacer or editable area if needed in future */}
                     </div>
                 </div>
             );
@@ -600,6 +665,20 @@ export default function App() {
             return (
                 <MobileContainer className="p-0 bg-black md:p-8 pb-32">
                     <div className="w-full h-full flex flex-col items-center justify-center relative">
+                        {/* Top Bar for Details: Back and Delete */}
+                        <div className="absolute top-4 left-4 z-50 flex justify-between w-[calc(100%-2rem)]">
+                            {status === 'details' && (
+                                <button onClick={() => { setStatus('history'); setSelectedActivity(null); }} className="p-2 bg-black/50 backdrop-blur rounded-full text-white">
+                                    <ChevronLeft size={20} />
+                                </button>
+                            )}
+                            {status === 'details' && selectedActivity?.id && (
+                                <button onClick={() => handleDeleteActivity(selectedActivity.id!)} className="p-2 bg-red-500/20 backdrop-blur rounded-full text-red-500 ml-auto">
+                                    <Trash2 size={20} />
+                                </button>
+                            )}
+                        </div>
+
                         {renderResultCard(data as ActivityData, status === 'details')}
 
                         <div className="w-full max-w-[400px] flex gap-2 p-4">
@@ -724,9 +803,16 @@ export default function App() {
 
                 {/* Control Bar for Running Mode - Replaces BottomNav during run */}
                 <div className="fixed bottom-6 left-6 right-6 p-4 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-50 border border-white/10 backdrop-blur-xl bg-black/80 flex items-center justify-between gap-4">
-                    <button onClick={() => { clearInterval(timerId.current); setStatus('paused'); }} className="w-14 h-14 rounded-full text-white flex items-center justify-center transition-colors border border-white/10 hover:bg-white/10 bg-white/5">
-                        <Pause fill="currentColor" size={24} />
-                    </button>
+                    {status === 'running' ? (
+                        <button onClick={() => { clearInterval(timerId.current); setStatus('paused'); releaseWakeLock(); }} className="w-14 h-14 rounded-full text-white flex items-center justify-center transition-colors border border-white/10 hover:bg-white/10 bg-white/5">
+                            <Pause fill="currentColor" size={24} />
+                        </button>
+                    ) : (
+                        <button onClick={resumeTracking} className="w-14 h-14 rounded-full text-white flex items-center justify-center transition-colors border border-white/10 hover:bg-white/10 bg-white/5 animate-pulse" style={{ borderColor: theme.primary }}>
+                            <Play fill={theme.primary} size={24} color={theme.primary} />
+                        </button>
+                    )}
+
                     <button onClick={stopTracking} className="flex-1 h-14 rounded-2xl flex items-center justify-center transition-all shadow-lg hover:brightness-110 active:scale-95 text-black font-bold text-sm tracking-wide" style={{ backgroundColor: theme.secondary }}>
                         <Square fill="currentColor" className="mr-2" size={18} /> FINALIZAR TREINO
                     </button>
